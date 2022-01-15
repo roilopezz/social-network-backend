@@ -1,110 +1,53 @@
+const { GoogleSpreadsheet } = require("google-spreadsheet");
 const express = require("express");
-const session = require("express-session");
 const app = express();
-const cors = require("cors");
-const { apiUrl } = require("./config.json");
-const userRouter = require("./routers/user");
-const postRouter = require("./routers/post");
-const conversationRouter = require("./routers/conversations");
-const friendsRouter = require("./routers/friends");
-const messagesRouter = require("./routers/messages");
-const http = require("http");
-const server = http.createServer(app);
-module.exports = { server };
-const socket = require("./models/socket");
-const multer = require("multer");
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-app.use("/upload", express.static("upload"));
+const creds = require("./client_secret.json");
+const cors = require("cors");
+require("dotenv").config();
 
-// Loggers
-const morgan = require("morgan");
-app.use(morgan("dev"));
-
-// -- Session settings -- //
-const TWO_HOURS = 1000 * 60 * 60 * 2;
-const {
-  PORT = 3900,
-  NODE_ENV = "development",
-  SESS_NAME = "sid",
-  SESS_SECRET = "secretSecret",
-  SESS_LIFETIME = TWO_HOURS,
-} = process.env;
-
-const IN_PROD = NODE_ENV === "production";
-
-// app.enable("trust proxy", 1);
-
-app.use(
-  session({
-    name: SESS_NAME,
-    resave: false,
-    saveUninitialized: false,
-    secret: SESS_SECRET,
-    cookie: {
-      maxAge: SESS_LIFETIME,
-      sameSite: true,
-      // to enable cookies in heroku or another cloud you need to edit :
-      // sameSite: "none",
-      secure: IN_PROD,
-    },
-  })
-);
-
-// -- enable cors -- //
 app.use(
   cors({
-    origin: [apiUrl],
-    methods: ["GET", "POST", "DELETE", "PUT"],
+    origin: "https://tal-lopez.netlify.app",
     credentials: true,
+    methods: ["GET", "POST", "DELETE", "PUT"],
   })
 );
 
-// -- connect mongoDB -- //
-const mongoose = require("mongoose");
+const { PORT = 1337, SHEET = "1FSg3QFEPVETCtWX-OOcrUFcmFDd9YDvq8WRzAohBfAM" } =
+  process.env;
 
-mongoose
-  .connect("mongodb://localhost/social-net", {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-    useCreateIndex: true,
-    useFindAndModify: false,
-  })
-  .then(() => {
-    console.log("connect to mongoDB");
-  })
-  .catch(() => {
-    console.log("the connection was fail");
-  });
+app.post("/", async (req, res) => {
+  const doc = new GoogleSpreadsheet(SHEET);
+  await doc.useServiceAccountAuth(creds);
 
-// -- settings upload image -- //
-const storage = multer.diskStorage({
-  destination: (req, res, cb) => {
-    cb(null, "upload/");
-  },
-  filename: (req, file, cb) => {
-    if (file.mimetype != "image/jpeg" && file.mimetype != "image/png") {
-      return null;
-    }
-    cb(null, `${Date.now()} - ${file.originalname}`);
-  },
+  await doc.loadInfo(); // loads document properties and worksheets
+  console.log(doc.title);
+
+  const sheet = doc.sheetsByIndex[0]; // or use doc.sheetsById[id] or doc.sheetsByTitle[title]
+
+  let t = await sheet.addRow({ ...req.body });
+
+  await sheet.saveUpdatedCells();
+  res.send("The data was sent successfully");
+
+  //   (method) GoogleSpreadsheetWorksheet.addRow(values: {
+  //     [header: string]: string | number | boolean;
+  // } | (string | number | boolean)[], options?: {
+  //     raw: boolean;
+  //     insert: boolean;
+  // })
+
+  //   await doc.updateProperties({ title: 'renamed doc' });
+
+  //   const sheet = doc.sheetsByIndex[0]; // or use doc.sheetsById[id] or doc.sheetsByTitle[title]
+  //   console.log(sheet.title);
+  //   console.log(sheet.rowCount);
+
+  //   // adding / removing sheets
+  //   const newSheet = await doc.addSheet({ title: 'hot new sheet!' });
+  //   await newSheet.delete();
 });
 
-const upload = multer({
-  storage,
-  limits: 1024 * 1024 * 2,
-});
-
-// routes //
-
-app.enable(socket);
-
-app.use("/", upload.single("image"), userRouter);
-app.use("/post", postRouter);
-app.use("/conversations", conversationRouter);
-app.use("/messages", messagesRouter);
-app.use("/friends", friendsRouter);
-
-server.listen(PORT, () => {
-  console.log(`listening on port : ${PORT}`);
-});
+app.listen(PORT, (req, res) => console.log("running on 1337"));
